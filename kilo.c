@@ -17,6 +17,7 @@
 /* defines */
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define KILO_VERSION "0.0.1"
+#define KILO_TAB_STOP 4
 
 enum EDITOR_KEYS {
     ARROW_LEFT = 1000,
@@ -43,6 +44,7 @@ typedef struct erow {
 struct editorConfig {
     struct termios orig_termios; /* Original termios structure settings to default back to */
     int cx, cy;                  /* cursor (x, y) position */
+    int rx;                      /* render x position */
     int screenrows;              /* Number of rows that we can show */ 
     int screencols;              /* Number of cols that we can show */ 
     int numrows;                 /* Number of rows */
@@ -225,18 +227,19 @@ void editorProcessKeypress() {
             E.cx = 0;
             break;
         case END_KEY:
-            E.cx = E.screencols - 1;
+            if (E.cy < E.numrows) {
+                E.cx = E.row[E.cy].size;
+            }
             break;
         case PAGE_UP:
-        case PAGE_DOWN:
-            if (c == PAGE_UP && E.cy != 0) {
-                E.cy = 0;
-            }
-            else if (c == PAGE_DOWN && E.cy != E.screenrows - 1) {
-                E.cy = E.screenrows - 1;
-            }
-            
+        case PAGE_DOWN: 
             {
+                if (c == PAGE_UP) {
+                    E.cy = E.rowoff;
+                } else if (c == PAGE_DOWN) {
+                    E.cy = E.rowoff + E.screenrows - 1;
+                    if (E.cy > E.numrows) E.cy = E.numrows;
+                }
                 int times = E.screenrows;
                 while (times--)
                     editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
@@ -289,6 +292,18 @@ int getWindowSize(int *rows, int *cols) {
 
 /* row operations */ 
 
+int editorRowCxToRx(erow *row, int cx) {
+    int rx = 0;
+    int j;
+    for (j = 0; j < cx; j++) {
+        if (row->chars[j] == '\t') {
+            rx += (KILO_TAB_STOP - 1) - (rx % KILO_TAB_STOP);
+        }
+        rx++;
+    }
+    return rx;
+}
+
 void editorUpdateRow(erow *row) {
     int tabs = 0;
     int j;
@@ -297,20 +312,21 @@ void editorUpdateRow(erow *row) {
     }
 
     free(row->render);
-    row->render = malloc(row->size + tabs * 7 + 1);
+    // each occurence of a tab already accounts for 1 so we multiply by (TAB_STOP - 1)
+    row->render = malloc(row->size + tabs * (KILO_TAB_STOP - 1) + 1);
 
     int idx = 0;
     for (j = 0; j < row->size; j++) {
         if (row->chars[j] == '\t') {
             row->render[idx++] = ' ';
-            while (idx % 8 != 0) row->render[idx++] = ' ';
+            while (idx % KILO_TAB_STOP != 0) row->render[idx++] = ' ';
         }
         else {
             row->render[idx++] = row->chars[j];
         }    
     }
     row->render[idx] = '\0';
-    row->rize = idx;
+    row->rsize = idx;
 }
 
 void editorAppendRow(char *s, size_t len) {
@@ -322,9 +338,9 @@ void editorAppendRow(char *s, size_t len) {
     memcpy(E.row[row_idx].chars, s, len);
     E.row[row_idx].chars[len] = '\0'; // null character to mark end of string
     
-    E.row[at].rsize = 0;
-    E.row[at].render = NULL;
-    editorUpdateRow(&E.row[at]);
+    E.row[row_idx].rsize = 0;
+    E.row[row_idx].render = NULL;
+    editorUpdateRow(&E.row[row_idx]);
 
     E.numrows++;    
 }
@@ -352,17 +368,22 @@ void editorOpen(char *filename) {
 /* output */
 
 void editorScroll() {
+    E.rx = E.cx;
+    if (E.cy < E.numrows) {
+        E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+    }
+
     if (E.cy < E.rowoff) {
         E.rowoff = E.cy;
     }
     if (E.cy >= E.rowoff + E.screenrows) {
         E.rowoff = E.cy - E.screenrows + 1;
     }
-    if (E.cx < E.coloff) {
-        E.coloff = E.cx;
+    if (E.rx < E.coloff) {
+        E.coloff = E.rx;
     }
-    if (E.cx >= E.coloff + E.screencols) {
-        E.coloff = E.cx - E.screencols + 1;
+    if (E.rx >= E.coloff + E.screencols) {
+        E.coloff = E.rx - E.screencols + 1;
     }
 }
 
@@ -411,7 +432,7 @@ void editorRefreshScreen() {
     editorDrawRows(&ab);
     
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.cx - E.coloff) + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.rx - E.coloff) + 1);
     abAppend(&ab, buf, strlen(buf));
 
     abAppend(&ab, "\x1b[?25h", 6); // SM - set mode 
@@ -425,6 +446,7 @@ void editorRefreshScreen() {
 void initEditor() {
     E.cx = 0;
     E.cy = 0;
+    E.rx = 0;
     E.rowoff = 0;
     E.coloff = 0;
     E.numrows = 0;
