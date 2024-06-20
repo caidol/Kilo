@@ -56,11 +56,16 @@ struct editorConfig {
     int coloff;                  /* Offset of cols displayed */
     erow *row;                   /* Our rows of data */
     char *filename;              /* Currently open filename */
+    int dirty;                   /* File is modified but not saved */
     char statusmsg[80];
     time_t statusmsg_time;
 };
 
 struct editorConfig E;
+
+/* prototypes */
+
+void editorSetStatusMessage(const char *fmt, ...);
 
 /* append buffer */ 
 struct abuf {
@@ -231,6 +236,7 @@ void editorAppendRow(char *s, size_t len) {
     editorUpdateRow(&E.row[row_idx]);
 
     E.numrows++;    
+    E.dirty++; // could just set to E.dirty = 1;
 }
 
 void editorRowInsertChar(erow *row, int at, int c) {
@@ -240,6 +246,7 @@ void editorRowInsertChar(erow *row, int at, int c) {
     row->size++; 
     row->chars[at] = c;
     editorUpdateRow(row);
+    E.dirty++;
 }
 
 /* editor operations */
@@ -303,10 +310,21 @@ void editorSave() {
     char *buf = editorRowsToString(&len);
 
     int fd = open(E.filename, O_RDWR | O_CREAT, 0644); // 0644 maps to standard file perms
-    ftruncate(fd, len);
-    write(fd, buf, len);
-    close(fd);
+    
+    /* error handling */
+    if (fd != -1) {
+        if (ftruncate(fd, len) != -1) {
+            if (write(fd, buf, len) == len) { // expect write() function to return the number of bytes given to write
+                close(fd);
+                free(buf);
+                editorSetStatusMessage("%d bytes written to disk", len);
+                return;
+            }
+        }
+        close(fd);
+    }
     free(buf);
+    editorSetStatusMessage("Can't save! I/O error: %s", strerror(errno));
 }
 
 /* output */
@@ -366,8 +384,9 @@ void editorDrawRows(struct abuf *ab) {
 void editorDrawStatusBar(struct abuf *ab) {
     abAppend(ab, "\x1b[7m", 4);
     char status[80], rstatus[80];
-    int len = snprintf(status, sizeof(status), "%.20s - %d lines", 
-        E.filename ? E.filename : "[No name]", E.numrows);
+    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s", 
+        E.filename ? E.filename : "[No name]", E.numrows,
+        E.dirty ? "(modified)" : "");
     int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", E.cy + 1, E.numrows);
     if (len > E.screencols) len = E.screencols;
     abAppend(ab, status, len);
@@ -576,6 +595,7 @@ void initEditor() {
     E.numrows = 0;
     E.row = NULL;
     E.filename = NULL;
+    E.dirty = 0;
     E.statusmsg[0] = '\0';
     E.statusmsg_time = 0;
 
@@ -590,7 +610,7 @@ int main(int argc, char *argv[]) {
         editorOpen(argv[1]);
     }
     
-    editorSetStatusMessage("HELP: Ctrl-Q = quit");
+    editorSetStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit");
 
     while (1) {
         editorRefreshScreen();
