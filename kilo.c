@@ -531,13 +531,15 @@ void editorInsertChar(int c, int row, int col) {
 
     editorRowInsertChar(row != -1 ? &E.row[row] : &E.row[E.cy], 
         col != -1 ? col : E.cx, c);
-    E.cx++; // incrememnt our new position as we add a character in
+    E.cx++; // increment our new position as we add a character in
 }
 
 void editorInsertNewline() {
     // Insert blank row if we're at the beginning of the line. This is 
     // because all the row content will be put onto the next line
-    if (E.cx == 0) {
+    
+    // if (E.cx == 0)
+    if (E.cx == 5) {
         editorInsertRow(E.cy, "", 0);
     } else { // Otherwise, we split the line we're on into two rows 
         erow *row = &E.row[E.cy];
@@ -556,17 +558,20 @@ void editorInsertNewline() {
     }
     // set cursor to the beginning of the next row
     E.cy++;
-    E.cx = 0;
+    //E.cx = 0;
+    E.cx = 5;
 }
 
 void editorDelChar() {
     // Return if the cursor is past the end of the file or there is no 
     // content to be deleted
     if (E.cy == E.numrows) return;
-    if (E.cx == 0 && E.cy == 0) return;
+    // if (E.cx == 0 && E.cy == 0) return;
+    if (E.cx == 5 && E.cy == 0) return;
 
     erow *row = &E.row[E.cy];
-    if (E.cx > 0) {
+    // if (E.cx > 0)
+    if (E.cx > 5) {
         // Remove the current char and move our x-position to 1 before
         editorRowDelChar(row, E.cx - 1);
         E.cx--;
@@ -809,6 +814,8 @@ void editorDrawRows(struct abuf *ab) {
                 abAppend(ab, "~", 1);
             }
         } else {
+            abAppend(ab, "     ", 5);      
+
             int len = E.row[filerow].rsize - E.coloff;
             if (len < 0) len = 0;
             if (len > E.screencols) len = E.screencols;
@@ -880,7 +887,7 @@ void editorShowRowNumbers(erow *row, struct abuf *ab) {
     int filerow;
 
     // Go through the pointer until we reach the end of the memory segment
-    while (p < (ab->b + ab->len) && curr_row < curr_row + E.screenrows - 2) {
+    while (p < (ab->b + ab->len) && curr_row < E.screenrows) {
         // TODO: work out the line number at the top of the curr buffer
         filerow = curr_row + E.rowoff;    
 
@@ -1023,7 +1030,8 @@ void editorMoveCursor(int key) {
 
     switch (key) {
         case ARROW_LEFT:
-            if (E.cx != 0) {
+            // if (E.cx != 0)
+            if (E.cx != 5) {
                 E.cx--;
             } else if (E.cy > 0) {
                 E.cy--;
@@ -1035,7 +1043,8 @@ void editorMoveCursor(int key) {
                 E.cx++;
             } else if (row && E.cx == row->size) {
                 E.cy++;
-                E.cx = 0;
+                // E.cx = 0;
+                E.cx = 5;
             }
             break;
         case ARROW_UP:
@@ -1086,7 +1095,8 @@ void editorProcessKeypress() {
             break;
 
         case HOME_KEY:
-            E.cx = 0;
+            // E.cx = 0;
+            E.cx = 5;
             break;
         case END_KEY:
             if (E.cy < E.numrows) {
@@ -1344,7 +1354,8 @@ void editorSelectSyntaxHighlight() {
 // ##################
 
 void initEditor() {
-    E.cx = 0;
+    // E.cx = 0;
+    E.cx = 5;
     E.cy = 0;
     E.rx = 0;
     E.rowoff = 0;
